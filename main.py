@@ -9,7 +9,7 @@ TOKEN = os.environ.get('TOKEN')
 if not TOKEN:
     raise ValueError("A variável de ambiente TOKEN não foi encontrada!")
 
-bot = telebot.TeleBot(TOKEN)
+bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
 
 ARQUIVO_DADOS = 'dados_bot.json'
@@ -33,20 +33,16 @@ def index():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    try:
-        json_data = request.get_json(force=True)
-        print(f">>> JSON RECEBIDO: {json_data} <<<")
-        if json_data:
-            update = telebot.types.Update.de_json(json_data)
-            bot.process_new_updates([update])
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
         return '', 200
-    except Exception as e:
-        print(f"❌ ERRO CRÍTICO NO WEBHOOK: {e}")
-        return '', 200
+    else:
+        return 'Forbidden', 403
 
 @app.errorhandler(404)
 def page_not_found(e):
-    print(f"⚠️ ERRO 404: Caminho não encontrado: '{request.path}' (Método: {request.method})")
     return "Rota não encontrada", 404
 
 @bot.message_handler(commands=['start'])
