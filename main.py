@@ -34,8 +34,8 @@ def index():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
-        print(">>> SUCESSO: Requisição POST recebida no /webhook! <<<")
         json_data = request.get_json(force=True)
+        print(f">>> JSON RECEBIDO: {json_data} <<<")
         if json_data:
             update = telebot.types.Update.de_json(json_data)
             bot.process_new_updates([update])
