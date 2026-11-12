@@ -39,10 +39,10 @@ def webhook():
         if json_data:
             update = telebot.types.Update.de_json(json_data)
             bot.process_new_updates([update])
-        return "OK", 200
+        return '', 200
     except Exception as e:
         print(f"❌ ERRO CRÍTICO NO WEBHOOK: {e}")
-        return "Error", 400
+        return '', 200
 
 @app.errorhandler(404)
 def page_not_found(e):
