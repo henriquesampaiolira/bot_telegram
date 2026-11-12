@@ -12,7 +12,6 @@ if not TOKEN:
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# Ficheiros locais para persistência no Render (ou ajuste conforme usava)
 ARQUIVO_DADOS = 'dados_bot.json'
 
 def carregar_dados():
@@ -32,8 +31,8 @@ def salvar_dados(dados):
 def index():
     return "Bot Multi-usuário de Promoções Rodando com Sucesso!"
 
-# Rota dinâmica do Webhook que aceita exatamente o seu token (evita o erro 404)
-@app.route(f'/{TOKEN}', methods=['POST'])
+# Rota fixa e limpa para o Webhook (evita qualquer erro 404)
+@app.route('/webhook', methods=['POST'])
 def webhook():
     try:
         json_str = request.get_data().decode('UTF-8')
@@ -132,24 +131,19 @@ def cmd_grupos(message):
     else:
         bot.reply_to(message, f"📂 O bot está ativo em {len(grupos)} grupo(s).")
 
-# Monitorização de mensagens nos grupos
 @bot.message_handler(content_types=['text'])
 def monitorar_mensagens(message):
     if message.chat.type in ['group', 'supergroup']:
         dados = carregar_dados()
         chat_id = message.chat.id
         
-        # Regista o grupo automaticamente se ainda não estiver guardado
         if chat_id not in dados["grupos"]:
             dados["grupos"].append(chat_id)
             salvar_dados(dados)
             
-        # Varrimento de texto usando regex para encontrar correspondências com os termos dos utilizadores
         texto_msg = message.text.lower()
-        
         for user_id, termos in dados["termos"].items():
             for termo in termos:
-                # Usa regex (\b) para garantir correspondência exata de palavras/termos
                 padrao = r'\b' + re.escape(termo.lower()) + r'\b'
                 if re.search(padrao, texto_msg):
                     try:
@@ -162,7 +156,7 @@ def monitorar_mensagens(message):
                             parse_mode='Markdown'
                         )
                     except Exception as e:
-                        print(f"Erro ao enviar alerta para o utilizador {user_id}: {e}")
+                        print(f"Erro ao enviar alerta: {e}")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
