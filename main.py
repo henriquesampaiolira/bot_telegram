@@ -31,27 +31,22 @@ def salvar_dados(dados):
 def index():
     return "Bot de Promoções a funcionar perfeitamente!"
 
-# Rota principal do Webhook
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    print(">>> SUCESSO: Requisição POST recebida no /webhook! <<<")
     try:
+        print(">>> SUCESSO: Requisição POST recebida no /webhook! <<<")
         json_str = request.get_data().decode('UTF-8')
         update = telebot.types.Update.de_json(json_str)
         bot.process_new_updates([update])
         return "OK", 200
     except Exception as e:
-        print(f"Erro ao processar update: {e}")
+        print(f"❌ ERRO CRÍTICO NO WEBHOOK: {e}")
         return "Error", 400
 
-# 🔍 FERRAMENTA DE DIAGNÓSTICO 404:
-# Se o Telegram enviar para o sítio errado, o Render vai cuspir exatamente qual foi o link nos logs!
 @app.errorhandler(404)
 def page_not_found(e):
-    print(f"⚠️ ERRO 404 DETETADO! O Telegram tentou aceder ao caminho: '{request.path}' (Método: {request.method})")
+    print(f"⚠️ ERRO 404: Caminho não encontrado: '{request.path}' (Método: {request.method})")
     return "Rota não encontrada", 404
-
-# --- COMANDOS DO BOT ---
 
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
@@ -59,8 +54,8 @@ def cmd_start(message):
         return
     bot.reply_to(
         message, 
-        "👋 Olá! O bot está online.\n\n"
-        "Comandos:\n"
+        "👋 Olá! O bot de monitoramento de promoções está online.\n\n"
+        "Comandos disponíveis:\n"
         "• `/adicionar <termo>`\n"
         "• `/remover <termo>`\n"
         "• `/listar`\n"
@@ -115,7 +110,7 @@ def cmd_listar(message):
         bot.reply_to(message, "📝 A sua lista está vazia. Use `/adicionar <termo>`.")
     else:
         lista_str = "\n".join([f"• {t}" for t in termos])
-        bot.reply_to(message, f"📝 **Os seus termos:**\n\n{lista_str}", parse_mode='Markdown')
+        bot.reply_to(message, f"📝 **Os seus termos monitorizados:**\n\n{lista_str}", parse_mode='Markdown')
 
 @bot.message_handler(commands=['grupos'])
 def cmd_grupos(message):
@@ -124,7 +119,7 @@ def cmd_grupos(message):
     dados = carregar_dados()
     grupos = dados["grupos"]
     if not grupos:
-        bot.reply_to(message, "📂 O bot ainda não está em nenhum grupo.")
+        bot.reply_to(message, "📂 O bot ainda não registou nenhum grupo.")
     else:
         bot.reply_to(message, f"📂 Ativo em {len(grupos)} grupo(s).")
 
