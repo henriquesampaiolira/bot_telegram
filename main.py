@@ -29,11 +29,12 @@ def salvar_dados(dados):
 
 @app.route('/')
 def index():
-    return "Bot Multi-usuário de Promoções Rodando com Sucesso!"
+    return "Bot de Promoções a funcionar perfeitamente!"
 
-# Rota fixa e limpa para o Webhook (evita qualquer erro 404)
+# Rota principal do Webhook
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    print(">>> SUCESSO: Requisição POST recebida no /webhook! <<<")
     try:
         json_str = request.get_data().decode('UTF-8')
         update = telebot.types.Update.de_json(json_str)
@@ -43,7 +44,14 @@ def webhook():
         print(f"Erro ao processar update: {e}")
         return "Error", 400
 
-# --- COMANDOS NO CHAT PRIVADO ---
+# 🔍 FERRAMENTA DE DIAGNÓSTICO 404:
+# Se o Telegram enviar para o sítio errado, o Render vai cuspir exatamente qual foi o link nos logs!
+@app.errorhandler(404)
+def page_not_found(e):
+    print(f"⚠️ ERRO 404 DETETADO! O Telegram tentou aceder ao caminho: '{request.path}' (Método: {request.method})")
+    return "Rota não encontrada", 404
+
+# --- COMANDOS DO BOT ---
 
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
@@ -51,96 +59,83 @@ def cmd_start(message):
         return
     bot.reply_to(
         message, 
-        "👋 Olá! Sou o seu bot de monitorização de promoções.\n\n"
-        "Comandos disponíveis:\n"
-        "• `/adicionar <termo>` - Adiciona um termo para monitorizar\n"
-        "• `/remover <termo>` - Remove um termo\n"
-        "• `/listar` - Mostra os seus termos guardados\n"
-        "• `/grupos` - Lista os grupos ativos"
+        "👋 Olá! O bot está online.\n\n"
+        "Comandos:\n"
+        "• `/adicionar <termo>`\n"
+        "• `/remover <termo>`\n"
+        "• `/listar`\n"
+        "• `/grupos`"
     )
 
 @bot.message_handler(commands=['adicionar'])
 def cmd_adicionar(message):
     if message.chat.type != 'private':
         return
-    
     user_id = str(message.from_user.id)
     texto = message.text.replace('/adicionar', '').strip()
-    
     if not texto:
-        bot.reply_to(message, "⚠️ Por favor, escreva o termo que deseja adicionar. Exemplo: `/adicionar monitor 27`")
+        bot.reply_to(message, "⚠️ Escreva o termo. Exemplo: `/adicionar monitor 27`")
         return
-        
     dados = carregar_dados()
     if user_id not in dados["termos"]:
         dados["termos"][user_id] = []
-        
     if texto.lower() in [t.lower() for t in dados["termos"][user_id]]:
-        bot.reply_to(message, f"⚠️ O termo *{texto}* já consta na sua lista.")
+        bot.reply_to(message, f"⚠️ O termo *{texto}* já está na lista.")
     else:
         dados["termos"][user_id].append(texto)
         salvar_dados(dados)
-        bot.reply_to(message, f"✅ Termo *{texto}* adicionado com sucesso à sua lista de monitorização!")
+        bot.reply_to(message, f"✅ Termo *{texto}* adicionado com sucesso!")
 
 @bot.message_handler(commands=['remover'])
 def cmd_remover(message):
     if message.chat.type != 'private':
         return
-        
     user_id = str(message.from_user.id)
     texto = message.text.replace('/remover', '').strip()
-    
     dados = carregar_dados()
     if user_id in dados["termos"] and texto:
         lista_antes = len(dados["termos"][user_id])
         dados["termos"][user_id] = [t for t in dados["termos"][user_id] if t.lower() != texto.lower()]
-        
         if len(dados["termos"][user_id]) < lista_antes:
             salvar_dados(dados)
-            bot.reply_to(message, f"🗑️ Termo *{texto}* removido com sucesso.")
+            bot.reply_to(message, f"🗑️ Termo *{texto}* removido.")
         else:
-            bot.reply_to(message, "⚠️ O termo especificado não foi encontrado na sua lista.")
+            bot.reply_to(message, "⚠️ Termo não encontrado na lista.")
     else:
-        bot.reply_to(message, "⚠️ Nenhum termo especificado ou lista vazia.")
+        bot.reply_to(message, "⚠️ Lista vazia ou termo inválido.")
 
 @bot.message_handler(commands=['listar'])
 def cmd_listar(message):
     if message.chat.type != 'private':
         return
-        
     user_id = str(message.from_user.id)
     dados = carregar_dados()
     termos = dados["termos"].get(user_id, [])
-    
     if not termos:
-        bot.reply_to(message, "📝 A sua lista de monitorização está vazia. Use `/adicionar <termo>` para incluir produtos.")
+        bot.reply_to(message, "📝 A sua lista está vazia. Use `/adicionar <termo>`.")
     else:
         lista_str = "\n".join([f"• {t}" for t in termos])
-        bot.reply_to(message, f"📝 **Os seus termos monitorizados:**\n\n{lista_str}", parse_mode='Markdown')
+        bot.reply_to(message, f"📝 **Os seus termos:**\n\n{lista_str}", parse_mode='Markdown')
 
 @bot.message_handler(commands=['grupos'])
 def cmd_grupos(message):
     if message.chat.type != 'private':
         return
-        
     dados = carregar_dados()
     grupos = dados["grupos"]
-    
     if not grupos:
-        bot.reply_to(message, "📂 O bot ainda não está registado em nenhum grupo.")
+        bot.reply_to(message, "📂 O bot ainda não está em nenhum grupo.")
     else:
-        bot.reply_to(message, f"📂 O bot está ativo em {len(grupos)} grupo(s).")
+        bot.reply_to(message, f"📂 Ativo em {len(grupos)} grupo(s).")
 
 @bot.message_handler(content_types=['text'])
 def monitorar_mensagens(message):
     if message.chat.type in ['group', 'supergroup']:
         dados = carregar_dados()
         chat_id = message.chat.id
-        
         if chat_id not in dados["grupos"]:
             dados["grupos"].append(chat_id)
             salvar_dados(dados)
-            
         texto_msg = message.text.lower()
         for user_id, termos in dados["termos"].items():
             for termo in termos:
@@ -150,9 +145,9 @@ def monitorar_mensagens(message):
                         bot.send_message(
                             int(user_id), 
                             f"🚨 **Promoção Encontrada!**\n\n"
-                            f"🔍 Termo detetado: *{termo}*\n"
+                            f"🔍 Termo: *{termo}*\n"
                             f"💬 Grupo: {message.chat.title}\n\n"
-                            f"Mensagem:\n_{message.text}_", 
+                            f"_{message.text}_", 
                             parse_mode='Markdown'
                         )
                     except Exception as e:
