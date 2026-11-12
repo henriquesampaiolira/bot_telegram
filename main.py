@@ -35,9 +35,10 @@ def index():
 def webhook():
     try:
         print(">>> SUCESSO: Requisição POST recebida no /webhook! <<<")
-        json_str = request.get_data().decode('UTF-8')
-        update = telebot.types.Update.de_json(json_str)
-        bot.process_new_updates([update])
+        json_data = request.get_json(force=True)
+        if json_data:
+            update = telebot.types.Update.de_json(json_data)
+            bot.process_new_updates([update])
         return "OK", 200
     except Exception as e:
         print(f"❌ ERRO CRÍTICO NO WEBHOOK: {e}")
