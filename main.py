@@ -9,9 +9,10 @@ bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
 ARQUIVO_USUARIOS = "usuarios.json"
+ARQUIVO_GRUPOS = "grupos.json"
 
 
-# Carrega as listas de palavras de todos os usuários
+# --- FUNÇÕES DE PERSISTÊNCIA (DADOS) ---
 def carregar_dados():
   if os.path.exists(ARQUIVO_USUARIOS):
     with open(ARQUIVO_USUARIOS, "r", encoding="utf-8") as f:
@@ -24,6 +25,19 @@ def salvar_dados(dados):
     json.dump(dados, f, ensure_ascii=False, indent=4)
 
 
+def carregar_grupos():
+  if os.path.exists(ARQUIVO_GRUPOS):
+    with open(ARQUIVO_GRUPOS, "r", encoding="utf-8") as f:
+      return json.load(f)
+  return {}
+
+
+def salvar_grupos(grupos):
+  with open(ARQUIVO_GRUPOS, "w", encoding="utf-8") as f:
+    json.dump(grupos, f, ensure_ascii=False, indent=4)
+
+
+# --- ROTAS DO FLASK (WEBHOOK) ---
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
   json_string = request.get_data().decode("utf-8")
@@ -34,10 +48,10 @@ def webhook():
 
 @app.route("/")
 def index():
-  return "Bot Multi-usuário de Promoções Rodando!", 200
+  return "Bot Multi-usuário de Promoções Rodando com Sucesso!", 200
 
 
-# --- COMANDOS DO BOT (Privado para cada usuário) ---
+# --- COMANDOS DO BOT (Chat Privado) ---
 
 
 @bot.message_handler(commands=["adicionar"])
@@ -103,7 +117,8 @@ def cmd_listar(message):
   if not palavras:
     bot.reply_to(
         message,
-        "Sua lista de termos está vazia. Use `/adicionar <termo>` para incluir.",
+        "Sua lista de termos está vazia. Use `/adicionar <termo>` para"
+        " incluir.",
         parse_mode="Markdown",
     )
   else:
@@ -113,16 +128,51 @@ def cmd_listar(message):
     bot.reply_to(message, texto, parse_mode="Markdown")
 
 
+@bot.message_handler(commands=["grupos"])
+def cmd_grupos(message):
+  if message.chat.type != "private":
+    return
+
+  grupos = carregar_grupos()
+  if not grupos:
+    bot.reply_to(
+        message,
+        "⚠️ O bot ainda não registrou nenhum grupo ou acabou de ser"
+        " reiniciado na nuvem.",
+    )
+  else:
+    texto = "📋 **Grupos Ativos Monitorados pelo Bot:**\n\n"
+    for cid, nome in grupos.items():
+      texto += f"• `{nome}`\n"
+    bot.reply_to(message, texto, parse_mode="Markdown")
+
+
+# --- RASTREAMENTO DE ENTRADA/SAÍDA EM GRUPOS ---
+@bot.my_chat_member_handler()
+def tracking_grupos(message):
+  chat = message.chat
+  if chat.type in ["group", "supergroup"]:
+    status = message.new_chat_member.status
+    grupos = carregar_grupos()
+    chat_id_str = str(chat.id)
+
+    if status in ["member", "administrator"]:
+      grupos[chat_id_str] = chat.title
+      salvar_grupos(grupos)
+    elif status in ["left", "kicked"]:
+      if chat_id_str in grupos:
+        del grupos[chat_id_str]
+        salvar_grupos(grupos)
+
+
 # --- MONITORAMENTO DOS GRUPOS COM BUSCA INTELIGENTE ---
-
-
 @bot.message_handler(func=lambda message: True)
 def filtrar_promocoes(message):
   if message.chat.type == "private":
     return
 
   texto_original = message.text if message.text else ""
-  # Limpeza inteligente: substitui pontuações (vírgulas, hífens, pontos) por espaços e padroniza minúsculas
+  # Limpeza inteligente: converte pontuações e vírgulas em espaços para a busca não falhar
   texto_limpo = re.sub(r"[^\w\s]", " ", texto_original).lower()
 
   dados = carregar_dados()
@@ -133,7 +183,7 @@ def filtrar_promocoes(message):
   for user_id, palavras in dados.items():
     for termo in palavras:
       partes = termo.lower().split()
-      # Verifica se todas as partes do termo aparecem no texto limpo (independente de vírgulas)
+      # Verifica se todas as partes do termo aparecem no texto limpo
       if all(parte in texto_limpo for parte in partes):
         aviso = (
             f"🚨 **PROMOÇÃO ENCONTRADA!** 🚨\n\n"
