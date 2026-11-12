@@ -1,203 +1,168 @@
-import json
 import os
+import json
 import re
 import telebot
 from flask import Flask, request
 
-TOKEN = os.environ.get("TOKEN")
+TOKEN = os.environ.get('TOKEN')
+
+if not TOKEN:
+    raise ValueError("A variável de ambiente TOKEN não foi encontrada!")
+
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-ARQUIVO_USUARIOS = "usuarios.json"
-ARQUIVO_GRUPOS = "grupos.json"
+# Ficheiros locais para persistência no Render (ou ajuste conforme usava)
+ARQUIVO_DADOS = 'dados_bot.json'
 
-
-# --- FUNÇÕES DE PERSISTÊNCIA (DADOS) ---
 def carregar_dados():
-  if os.path.exists(ARQUIVO_USUARIOS):
-    with open(ARQUIVO_USUARIOS, "r", encoding="utf-8") as f:
-      return json.load(f)
-  return {}
-
+    if os.path.exists(ARQUIVO_DADOS):
+        try:
+            with open(ARQUIVO_DADOS, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"termos": {}, "grupos": []}
 
 def salvar_dados(dados):
-  with open(ARQUIVO_USUARIOS, "w", encoding="utf-8") as f:
-    json.dump(dados, f, ensure_ascii=False, indent=4)
+    with open(ARQUIVO_DADOS, 'w', encoding='utf-8') as f:
+        json.dump(dados, f, ensure_ascii=False, indent=4)
 
-
-def carregar_grupos():
-  if os.path.exists(ARQUIVO_GRUPOS):
-    with open(ARQUIVO_GRUPOS, "r", encoding="utf-8") as f:
-      return json.load(f)
-  return {}
-
-
-def salvar_grupos(grupos):
-  with open(ARQUIVO_GRUPOS, "w", encoding="utf-8") as f:
-    json.dump(grupos, f, ensure_ascii=False, indent=4)
-
-
-# --- ROTAS DO FLASK (WEBHOOK) ---
-@app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-  json_string = request.get_data().decode("utf-8")
-  update = telebot.types.Update.de_json(json_string)
-  bot.process_new_updates([update])
-  return "!", 200
-
-
-@app.route("/")
+@app.route('/')
 def index():
-  return "Bot Multi-usuário de Promoções Rodando com Sucesso!", 200
+    return "Bot Multi-usuário de Promoções Rodando com Sucesso!"
 
+# Rota dinâmica do Webhook que aceita exatamente o seu token (evita o erro 404)
+@app.route(f'/{TOKEN}', methods=['POST'])
+def webhook():
+    try:
+        json_str = request.get_data().decode('UTF-8')
+        update = telebot.types.Update.de_json(json_str)
+        bot.process_new_updates([update])
+        return "OK", 200
+    except Exception as e:
+        print(f"Erro ao processar update: {e}")
+        return "Error", 400
 
-# --- COMANDOS DO BOT (Chat Privado) ---
+# --- COMANDOS NO CHAT PRIVADO ---
 
+@bot.message_handler(commands=['start'])
+def cmd_start(message):
+    if message.chat.type != 'private':
+        return
+    bot.reply_to(
+        message, 
+        "👋 Olá! Sou o seu bot de monitorização de promoções.\n\n"
+        "Comandos disponíveis:\n"
+        "• `/adicionar <termo>` - Adiciona um termo para monitorizar\n"
+        "• `/remover <termo>` - Remove um termo\n"
+        "• `/listar` - Mostra os seus termos guardados\n"
+        "• `/grupos` - Lista os grupos ativos"
+    )
 
-@bot.message_handler(commands=["adicionar"])
+@bot.message_handler(commands=['adicionar'])
 def cmd_adicionar(message):
-  if message.chat.type != "private":
-    return
+    if message.chat.type != 'private':
+        return
+    
+    user_id = str(message.from_user.id)
+    texto = message.text.replace('/adicionar', '').strip()
+    
+    if not texto:
+        bot.reply_to(message, "⚠️ Por favor, escreva o termo que deseja adicionar. Exemplo: `/adicionar monitor 27`")
+        return
+        
+    dados = carregar_dados()
+    if user_id not in dados["termos"]:
+        dados["termos"][user_id] = []
+        
+    if texto.lower() in [t.lower() for t in dados["termos"][user_id]]:
+        bot.reply_to(message, f"⚠️ O termo *{texto}* já consta na sua lista.")
+    else:
+        dados["termos"][user_id].append(texto)
+        salvar_dados(dados)
+        bot.reply_to(message, f"✅ Termo *{texto}* adicionado com sucesso à sua lista de monitorização!")
 
-  user_id = str(message.from_user.id)
-  termo = message.text.replace("/adicionar", "").strip().lower()
-
-  if not termo:
-    bot.reply_to(
-        message,
-        "⚠️ Digite o termo que deseja adicionar.\nExemplo: `/adicionar"
-        " monitor 27`",
-        parse_mode="Markdown",
-    )
-    return
-
-  dados = carregar_dados()
-  if user_id not in dados:
-    dados[user_id] = []
-
-  if termo not in dados[user_id]:
-    dados[user_id].append(termo)
-    salvar_dados(dados)
-    bot.reply_to(message, f"✅ Termo adicionado à sua lista: `{termo}`")
-  else:
-    bot.reply_to(message, f"⚠️ O termo `{termo}` já está na sua lista.")
-
-
-@bot.message_handler(commands=["remover"])
+@bot.message_handler(commands=['remover'])
 def cmd_remover(message):
-  if message.chat.type != "private":
-    return
+    if message.chat.type != 'private':
+        return
+        
+    user_id = str(message.from_user.id)
+    texto = message.text.replace('/remover', '').strip()
+    
+    dados = carregar_dados()
+    if user_id in dados["termos"] and texto:
+        lista_antes = len(dados["termos"][user_id])
+        dados["termos"][user_id] = [t for t in dados["termos"][user_id] if t.lower() != texto.lower()]
+        
+        if len(dados["termos"][user_id]) < lista_antes:
+            salvar_dados(dados)
+            bot.reply_to(message, f"🗑️ Termo *{texto}* removido com sucesso.")
+        else:
+            bot.reply_to(message, "⚠️ O termo especificado não foi encontrado na sua lista.")
+    else:
+        bot.reply_to(message, "⚠️ Nenhum termo especificado ou lista vazia.")
 
-  user_id = str(message.from_user.id)
-  termo = message.text.replace("/remover", "").strip().lower()
-
-  dados = carregar_dados()
-  if user_id in dados and termo in dados[user_id]:
-    dados[user_id].remove(termo)
-    salvar_dados(dados)
-    bot.reply_to(message, f"🗑️ Termo removido com sucesso: `{termo}`")
-  else:
-    bot.reply_to(
-        message,
-        "❌ Termo não encontrado na sua lista. Use `/listar` para ver os"
-        " salvos.",
-        parse_mode="Markdown",
-    )
-
-
-@bot.message_handler(commands=["listar"])
+@bot.message_handler(commands=['listar'])
 def cmd_listar(message):
-  if message.chat.type != "private":
-    return
+    if message.chat.type != 'private':
+        return
+        
+    user_id = str(message.from_user.id)
+    dados = carregar_dados()
+    termos = dados["termos"].get(user_id, [])
+    
+    if not termos:
+        bot.reply_to(message, "📝 A sua lista de monitorização está vazia. Use `/adicionar <termo>` para incluir produtos.")
+    else:
+        lista_str = "\n".join([f"• {t}" for t in termos])
+        bot.reply_to(message, f"📝 **Os seus termos monitorizados:**\n\n{lista_str}", parse_mode='Markdown')
 
-  user_id = str(message.from_user.id)
-  dados = carregar_dados()
-  palavras = dados.get(user_id, [])
-
-  if not palavras:
-    bot.reply_to(
-        message,
-        "Sua lista de termos está vazia. Use `/adicionar <termo>` para"
-        " incluir.",
-        parse_mode="Markdown",
-    )
-  else:
-    texto = "📋 **Seus Termos Monitorados:**\n\n"
-    for i, p in enumerate(palavras, 1):
-      texto += f"{i}. `{p}`\n"
-    bot.reply_to(message, texto, parse_mode="Markdown")
-
-
-@bot.message_handler(commands=["grupos"])
+@bot.message_handler(commands=['grupos'])
 def cmd_grupos(message):
-  if message.chat.type != "private":
-    return
+    if message.chat.type != 'private':
+        return
+        
+    dados = carregar_dados()
+    grupos = dados["grupos"]
+    
+    if not grupos:
+        bot.reply_to(message, "📂 O bot ainda não está registado em nenhum grupo.")
+    else:
+        bot.reply_to(message, f"📂 O bot está ativo em {len(grupos)} grupo(s).")
 
-  grupos = carregar_grupos()
-  if not grupos:
-    bot.reply_to(
-        message,
-        "⚠️ O bot ainda não registrou nenhum grupo ou acabou de ser"
-        " reiniciado na nuvem.",
-    )
-  else:
-    texto = "📋 **Grupos Ativos Monitorados pelo Bot:**\n\n"
-    for cid, nome in grupos.items():
-      texto += f"• `{nome}`\n"
-    bot.reply_to(message, texto, parse_mode="Markdown")
+# Monitorização de mensagens nos grupos
+@bot.message_handler(content_types=['text'])
+def monitorar_mensagens(message):
+    if message.chat.type in ['group', 'supergroup']:
+        dados = carregar_dados()
+        chat_id = message.chat.id
+        
+        # Regista o grupo automaticamente se ainda não estiver guardado
+        if chat_id not in dados["grupos"]:
+            dados["grupos"].append(chat_id)
+            salvar_dados(dados)
+            
+        # Varrimento de texto usando regex para encontrar correspondências com os termos dos utilizadores
+        texto_msg = message.text.lower()
+        
+        for user_id, termos in dados["termos"].items():
+            for termo in termos:
+                # Usa regex (\b) para garantir correspondência exata de palavras/termos
+                padrao = r'\b' + re.escape(termo.lower()) + r'\b'
+                if re.search(padrao, texto_msg):
+                    try:
+                        bot.send_message(
+                            int(user_id), 
+                            f"🚨 **Promoção Encontrada!**\n\n"
+                            f"🔍 Termo detetado: *{termo}*\n"
+                            f"💬 Grupo: {message.chat.title}\n\n"
+                            f"Mensagem:\n_{message.text}_", 
+                            parse_mode='Markdown'
+                        )
+                    except Exception as e:
+                        print(f"Erro ao enviar alerta para o utilizador {user_id}: {e}")
 
-
-# --- RASTREAMENTO DE ENTRADA/SAÍDA EM GRUPOS ---
-@bot.my_chat_member_handler()
-def tracking_grupos(message):
-  chat = message.chat
-  if chat.type in ["group", "supergroup"]:
-    status = message.new_chat_member.status
-    grupos = carregar_grupos()
-    chat_id_str = str(chat.id)
-
-    if status in ["member", "administrator"]:
-      grupos[chat_id_str] = chat.title
-      salvar_grupos(grupos)
-    elif status in ["left", "kicked"]:
-      if chat_id_str in grupos:
-        del grupos[chat_id_str]
-        salvar_grupos(grupos)
-
-
-# --- MONITORAMENTO DOS GRUPOS COM BUSCA INTELIGENTE ---
-@bot.message_handler(func=lambda message: True)
-def filtrar_promocoes(message):
-  if message.chat.type == "private":
-    return
-
-  texto_original = message.text if message.text else ""
-  # Limpeza inteligente: converte pontuações e vírgulas em espaços para a busca não falhar
-  texto_limpo = re.sub(r"[^\w\s]", " ", texto_original).lower()
-
-  dados = carregar_dados()
-  if not dados:
-    return
-
-  # Varre todos os usuários cadastrados no bot
-  for user_id, palavras in dados.items():
-    for termo in palavras:
-      partes = termo.lower().split()
-      # Verifica se todas as partes do termo aparecem no texto limpo
-      if all(parte in texto_limpo for parte in partes):
-        aviso = (
-            f"🚨 **PROMOÇÃO ENCONTRADA!** 🚨\n\n"
-            f"💬 **Grupo:** {message.chat.title}\n"
-            f"🔍 **Seu Termo:** `{termo}`\n\n"
-            f"📄 **Mensagem Original:**\n{texto_original}"
-        )
-        try:
-          bot.send_message(int(user_id), aviso, parse_mode="Markdown")
-        except Exception:
-          pass
-        break
-
-
-if __name__ == "__main__":
-  port = int(os.environ.get("PORT", 5000))
-  app.run(host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
